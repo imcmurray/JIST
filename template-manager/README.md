@@ -123,6 +123,175 @@ GitLab Project ID: 12345
 Repository path: /var/www/html/templates
 ```
 
+## Installation for Airgapped/Offline Servers
+
+If your RHEL 7 servers are airgapped (no internet access), follow these steps to install the Template Manager using pre-downloaded packages.
+
+### Step 1: Download Dependencies (Internet-Connected Machine)
+
+On a machine with internet access (can be your workstation, not necessarily RHEL 7):
+
+```bash
+# Navigate to the template-manager directory
+cd template-manager
+
+# Run the offline package downloader
+bash scripts/download_offline_packages.sh
+```
+
+This script will:
+- Download all Python dependencies and their sub-dependencies
+- Save them to an `offline-packages/` directory
+- Optionally create a compressed archive for easy transfer
+- Display transfer instructions
+
+Expected output:
+```
+Downloading Python dependencies...
+Downloading packages to offline-packages/
+Successfully downloaded Flask-2.0.3-py3-none-any.whl
+Successfully downloaded GitPython-3.1.27-py3-none-any.whl
+...
+Archive created: template-manager-offline-20241022_143022.tar.gz
+Archive size: 15M
+```
+
+### Step 2: Transfer to Airgapped Server
+
+Transfer the packages to your airgapped RHEL 7 server using one of these methods:
+
+**Method 1: Using Archive File (Recommended)**
+```bash
+# SCP transfer
+scp template-manager-offline-20241022_143022.tar.gz user@rhel-server:/tmp/
+
+# Or USB drive, physical media, etc.
+```
+
+**Method 2: Transfer Entire Directory**
+```bash
+# Rsync
+rsync -av template-manager/ user@rhel-server:/tmp/template-manager/
+
+# Or copy to USB drive
+cp -r template-manager/ /media/usb/
+```
+
+### Step 3: Extract on Airgapped Server (If Using Archive)
+
+```bash
+# SSH to your airgapped server
+ssh user@rhel-server
+
+# Extract the archive
+cd /tmp
+tar -xzf template-manager-offline-20241022_143022.tar.gz
+```
+
+### Step 4: Install System Dependencies (If Needed)
+
+If git or python3 are not installed, install them from RHEL installation media:
+
+```bash
+# Mount RHEL 7 installation DVD
+sudo mount /dev/cdrom /mnt
+
+# Create local repository
+sudo cat > /etc/yum.repos.d/local.repo <<EOF
+[local]
+name=RHEL Local
+baseurl=file:///mnt
+enabled=1
+gpgcheck=0
+EOF
+
+# Install git and python3
+sudo yum install git python3 --disablerepo=* --enablerepo=local
+
+# Unmount DVD
+sudo umount /mnt
+```
+
+### Step 5: Run Offline Installation
+
+```bash
+# Navigate to the template-manager directory
+cd /tmp/template-manager  # or wherever you extracted it
+
+# Run the offline installation script as root
+sudo bash scripts/setup_offline.sh
+```
+
+The offline installation script will:
+- Detect Python and git installations
+- Locate the offline-packages directory
+- Verify package contents
+- Install all dependencies from local packages (no internet required)
+- Create configuration file
+- Set up directories and permissions
+- Create command-line shortcut
+
+### Step 6: Configure
+
+Follow the same configuration prompts as the online installation:
+
+```
+Server role: train
+GitLab URL: https://gitlab.example.com
+GitLab Token: glpat-xxxxxxxxxxxxxxxxxxxx
+GitLab Project ID: 12345
+Repository path: /var/www/html/templates
+```
+
+### Offline Installation Notes
+
+1. **Python Version Compatibility**:
+   - Download packages on a machine with same Python version as target server
+   - Check version: `python3 --version`
+
+2. **Architecture Compatibility**:
+   - Some packages are platform-specific
+   - Download on same OS/architecture when possible (RHEL 7 x86_64)
+
+3. **Package Updates**:
+   - To update packages, re-run `download_offline_packages.sh`
+   - Transfer new packages to servers
+
+4. **Verification**:
+   - After installation, check logs: `/var/log/template-manager.log`
+   - Test startup: `template-manager`
+
+5. **Multiple Servers**:
+   - Download packages once
+   - Transfer same package set to all servers
+   - Saves bandwidth and time
+
+### Troubleshooting Offline Installation
+
+**Problem**: "pip not found"
+
+**Solution**:
+```bash
+# Install pip from RHEL DVD
+sudo yum install python3-pip --disablerepo=* --enablerepo=local
+```
+
+**Problem**: "Package installation failed"
+
+**Solution**:
+- Verify all .whl files are in offline-packages/
+- Check package compatibility with Python version
+- Review /tmp/pip-install.log for details
+
+**Problem**: "Cannot find offline-packages directory"
+
+**Solution**:
+```bash
+# Manually specify the path when prompted
+# Or ensure offline-packages/ is in the same directory as scripts/
+ls -la offline-packages/  # Verify it exists
+```
+
 ## Usage
 
 ### Starting the Web UI
@@ -242,7 +411,9 @@ sudo nano /opt/template-manager/.env
 ├── static/
 │   └── style.css              # CSS stylesheet
 ├── scripts/
-│   ├── setup.sh               # Installation script
+│   ├── setup.sh               # Online installation script
+│   ├── setup_offline.sh       # Offline/airgapped installation script
+│   ├── download_offline_packages.sh  # Download dependencies for offline install
 │   └── start_ui.sh            # Launch script
 └── README.md                   # This file
 ```

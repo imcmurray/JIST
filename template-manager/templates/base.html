@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Template Manager{% endblock %} - {{ server_role|upper }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="env-{{ server_role }}">
+    <header>
+        <div class="container">
+            <h1>GitLab Template Manager</h1>
+            <div class="env-badge {{ server_role }}">{{ server_role|upper }}</div>
+            <div class="branch-info">Branch: <strong>{{ current_branch }}</strong></div>
+        </div>
+    </header>
+
+    <nav>
+        <div class="container">
+            <a href="{{ url_for('index') }}" class="nav-link">Dashboard</a>
+            <a href="#status" class="nav-link" onclick="refreshStatus(); return false;">Refresh Status</a>
+            <a href="{{ url_for('health') }}" class="nav-link" target="_blank">Health Check</a>
+        </div>
+    </nav>
+
+    <main>
+        <div class="container">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>GitLab Template Manager v1.0 | Server: {{ server_role|upper }} | Branch: {{ current_branch }}</p>
+        </div>
+    </footer>
+
+    <script>
+        // Utility function for API calls
+        async function apiCall(url, method = 'GET', data = null) {
+            const options = {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            };
+
+            if (data) {
+                options.body = JSON.stringify(data);
+            }
+
+            try {
+                const response = await fetch(url, options);
+                return await response.json();
+            } catch (error) {
+                console.error('API call failed:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        // Show loading indicator
+        function showLoading(elementId) {
+            const element = document.getElementById(elementId);
+            if (element) {
+                element.innerHTML = '<div class="loading">Loading...</div>';
+            }
+        }
+
+        // Show error message
+        function showError(elementId, message) {
+            const element = document.getElementById(elementId);
+            if (element) {
+                element.innerHTML = `<div class="error-message">${message}</div>`;
+            }
+        }
+
+        // Format date/time
+        function formatDateTime(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleString();
+        }
+
+        // Refresh status
+        async function refreshStatus() {
+            showLoading('dashboard-content');
+            location.reload();
+        }
+
+        // Confirm action
+        function confirmAction(message) {
+            return confirm(message);
+        }
+    </script>
+
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

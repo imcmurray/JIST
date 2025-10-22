@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+
+{% block title %}{{ server_role|capitalize }} Environment{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <h2>{{ server_role|capitalize }} Server Dashboard</h2>
+
+    <!-- Connection Status -->
+    <section class="card">
+        <h3>Connection Status</h3>
+        <div id="connection-status">
+            {% if dashboard.success and dashboard.gitlab_connection.success %}
+                <div class="status-item status-good">
+                    <span class="status-icon">✓</span>
+                    <strong>GitLab Connected</strong>
+                    <p>User: {{ dashboard.gitlab_connection.user }}</p>
+                    <p>URL: {{ dashboard.gitlab_connection.gitlab_url }}</p>
+                </div>
+            {% else %}
+                <div class="status-item status-error">
+                    <span class="status-icon">✗</span>
+                    <strong>GitLab Connection Failed</strong>
+                    <p>{{ dashboard.gitlab_connection.error if dashboard.gitlab_connection else 'Unknown error' }}</p>
+                </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- Current Version -->
+    <section class="card">
+        <h3>Current Version</h3>
+        <div id="current-version">
+            {% if dashboard.success and dashboard.local_status.success %}
+                {% set status = dashboard.local_status %}
+                {% if status.last_commit %}
+                    <div class="version-info">
+                        <div class="version-item">
+                            <strong>Commit Hash:</strong>
+                            <p class="commit-hash">{{ status.last_commit.full_hash }}</p>
+                        </div>
+                        <div class="version-item">
+                            <strong>Message:</strong>
+                            <p>{{ status.last_commit.message }}</p>
+                        </div>
+                        <div class="version-item">
+                            <strong>Author:</strong>
+                            <p>{{ status.last_commit.author }}</p>
+                        </div>
+                        <div class="version-item">
+                            <strong>Date:</strong>
+                            <p>{{ status.last_commit.date }}</p>
+                        </div>
+                    </div>
+                {% else %}
+                    <p>No commits found</p>
+                {% endif %}
+            {% else %}
+                <div class="status-error">Error loading version info</div>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- Update Status -->
+    <section class="card">
+        <h3>Update Status</h3>
+        <div id="update-status">
+            {% if dashboard.success and dashboard.local_remote_sync.success %}
+                {% set sync = dashboard.local_remote_sync %}
+                <div class="status-item status-{{ sync.status }}">
+                    {% if sync.status == 'synced' %}
+                        <span class="status-icon">✓</span>
+                        <strong>Up to Date</strong>
+                        <p>{{ sync.message }}</p>
+                        <p class="meta">Local and remote are in sync</p>
+                    {% elif sync.status == 'behind' %}
+                        <span class="status-icon">⚠</span>
+                        <strong>Updates Available</strong>
+                        <p>{{ sync.message }}</p>
+                        <p class="meta">{{ sync.behind }} commit(s) available</p>
+                        <button onclick="previewChanges()" class="btn btn-secondary">Preview Changes</button>
+                    {% elif sync.status == 'ahead' %}
+                        <span class="status-icon">⚠</span>
+                        <strong>Local Changes Detected</strong>
+                        <p>{{ sync.message }}</p>
+                        <p class="warning">Warning: Local repository has uncommitted changes. Please contact the train environment administrator.</p>
+                    {% else %}
+                        <span class="status-icon">✗</span>
+                        <strong>Diverged</strong>
+                        <p>{{ sync.message }}</p>
+                        <p class="error">Error: Local and remote have diverged. Manual intervention required.</p>
+                    {% endif %}
+                </div>
+            {% else %}
+                <div class="status-error">Error checking update status</div>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- Pull Updates -->
+    <section class="card">
+        <h3>Pull Updates</h3>
+        <div class="action-panel">
+            <p>Pull the latest changes from the {{ current_branch }} branch.</p>
+            {% if config.BACKUP_ENABLED %}
+                <p class="info-message">A backup will be created before pulling changes.</p>
+            {% endif %}
+            <button onclick="checkForUpdates()" class="btn btn-secondary">Check for Updates</button>
+            <button onclick="pullChanges()" class="btn btn-primary">Pull Changes</button>
+            <div id="pull-result"></div>
+        </div>
+    </section>
+
+    <!-- Recent Commits -->
+    <section class="card">
+        <h3>Recent Commits on {{ current_branch }}</h3>
+        <div id="recent-commits">
+            <button onclick="loadRecentCommits()" class="btn btn-secondary">Load Recent Commits</button>
+            <div id="commits-list"></div>
+        </div>
+    </section>
+
+    <!-- Preview Modal -->
+    <div id="preview-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <span class="close" onclick="closePreviewModal()">&times;</span>
+            <h3>Pending Changes Preview</h3>
+            <div id="preview-content"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    async function checkForUpdates() {
+        const resultDiv = document.getElementById('pull-result');
+        resultDiv.innerHTML = '<div class="loading">Checking for updates...</div>';
+
+        const result = await apiCall('/local-remote-sync');
+
+        if (result.success) {
+            if (result.status === 'synced') {
+                resultDiv.innerHTML = '<div class="success-message">✓ Already up to date</div>';
+            } else if (result.status === 'behind') {
+                resultDiv.innerHTML = `<div class="warning-message">⚠ ${result.behind} update(s) available. Click "Pull Changes" to update.</div>`;
+            } else {
+                resultDiv.innerHTML = `<div class="error-message">✗ ${result.message}</div>`;
+            }
+        } else {
+            resultDiv.innerHTML = `<div class="error-message">✗ ${result.error}</div>`;
+        }
+    }
+
+    async function pullChanges() {
+        if (!confirmAction('This will pull the latest changes from the {{ current_branch }} branch. Continue?')) {
+            return;
+        }
+
+        const resultDiv = document.getElementById('pull-result');
+        resultDiv.innerHTML = '<div class="loading">Pulling changes...</div>';
+
+        const result = await apiCall('/pull', 'POST', { branch: '{{ current_branch }}' });
+
+        if (result.success) {
+            let message = `✓ ${result.message}`;
+            if (result.backup_path) {
+                message += `<br>Backup created at: ${result.backup_path}`;
+            }
+            resultDiv.innerHTML = `<div class="success-message">${message}</div>`;
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            resultDiv.innerHTML = `<div class="error-message">✗ ${result.error}</div>`;
+        }
+    }
+
+    async function previewChanges() {
+        const modal = document.getElementById('preview-modal');
+        const content = document.getElementById('preview-content');
+
+        content.innerHTML = '<div class="loading">Loading preview...</div>';
+        modal.style.display = 'block';
+
+        const result = await apiCall('/preview-changes?from={{ current_branch }}&to={{ current_branch }}&limit=10');
+
+        if (result.success) {
+            let html = '<h4>Pending Changes</h4>';
+
+            if (result.total_commits > 0) {
+                html += `<p><strong>${result.total_commits} commit(s)</strong> will be applied</p>`;
+
+                html += '<h5>Commits:</h5><ul>';
+                result.commits.forEach(commit => {
+                    html += `<li><strong>${commit.id}</strong> - ${commit.message} <em>(${commit.author_name})</em></li>`;
+                });
+                html += '</ul>';
+
+                if (result.showing_limited) {
+                    html += `<p class="info-message">Showing first ${result.commits.length} of ${result.total_commits} commits</p>`;
+                }
+
+                html += '<h5>File Changes:</h5>';
+                const changes = result.file_changes;
+                if (changes.added.length > 0) {
+                    html += `<p><strong>Added (${changes.added.length}):</strong></p><ul>`;
+                    changes.added.forEach(file => html += `<li class="file-added">${file}</li>`);
+                    html += '</ul>';
+                }
+                if (changes.modified.length > 0) {
+                    html += `<p><strong>Modified (${changes.modified.length}):</strong></p><ul>`;
+                    changes.modified.forEach(file => html += `<li class="file-modified">${file}</li>`);
+                    html += '</ul>';
+                }
+                if (changes.deleted.length > 0) {
+                    html += `<p><strong>Deleted (${changes.deleted.length}):</strong></p><ul>`;
+                    changes.deleted.forEach(file => html += `<li class="file-deleted">${file}</li>`);
+                    html += '</ul>';
+                }
+
+                html += '<button onclick="closePreviewModal(); pullChanges();" class="btn btn-primary">Pull These Changes</button>';
+            } else {
+                html += '<p class="success-message">No pending changes - already up to date!</p>';
+            }
+
+            content.innerHTML = html;
+        } else {
+            content.innerHTML = `<div class="error-message">${result.error}</div>`;
+        }
+    }
+
+    async function loadRecentCommits() {
+        const listDiv = document.getElementById('commits-list');
+        listDiv.innerHTML = '<div class="loading">Loading commits...</div>';
+
+        const result = await apiCall('/commits/{{ current_branch }}?limit=10');
+
+        if (result.success) {
+            if (result.commits.length > 0) {
+                let html = '<div class="commits-list">';
+                result.commits.forEach(commit => {
+                    html += `
+                        <div class="commit-item">
+                            <div class="commit-header">
+                                <span class="commit-hash">${commit.id}</span>
+                                <span class="commit-date">${commit.created_at}</span>
+                            </div>
+                            <div class="commit-message">${commit.message}</div>
+                            <div class="commit-author">${commit.author_name}</div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                listDiv.innerHTML = html;
+            } else {
+                listDiv.innerHTML = '<p>No commits found</p>';
+            }
+        } else {
+            listDiv.innerHTML = `<div class="error-message">${result.error}</div>`;
+        }
+    }
+
+    function closePreviewModal() {
+        document.getElementById('preview-modal').style.display = 'none';
+    }
+
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+        const modal = document.getElementById('preview-modal');
+        if (event.target == modal) {
+            modal.style.display = 'none';
+        }
+    }
+
+    // Auto-refresh status every 5 minutes
+    setInterval(() => {
+        checkForUpdates();
+    }, 300000);
+</script>
+{% endblock %}

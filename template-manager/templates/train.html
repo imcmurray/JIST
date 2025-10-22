@@ -1,0 +1,350 @@
+{% extends "base.html" %}
+
+{% block title %}Train Environment{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <h2>Train Server Dashboard</h2>
+
+    <!-- Connection Status -->
+    <section class="card">
+        <h3>Connection Status</h3>
+        <div id="connection-status">
+            {% if dashboard.success and dashboard.gitlab_connection.success %}
+                <div class="status-item status-good">
+                    <span class="status-icon">✓</span>
+                    <strong>GitLab Connected</strong>
+                    <p>User: {{ dashboard.gitlab_connection.user }}</p>
+                    <p>URL: {{ dashboard.gitlab_connection.gitlab_url }}</p>
+                </div>
+            {% else %}
+                <div class="status-item status-error">
+                    <span class="status-icon">✗</span>
+                    <strong>GitLab Connection Failed</strong>
+                    <p>{{ dashboard.gitlab_connection.error if dashboard.gitlab_connection else 'Unknown error' }}</p>
+                </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- Local Repository Status -->
+    <section class="card">
+        <h3>Local Repository Status</h3>
+        <div id="local-status">
+            {% if dashboard.success and dashboard.local_status.success %}
+                {% set status = dashboard.local_status %}
+                <div class="status-grid">
+                    <div class="status-item {% if status.is_clean %}status-good{% else %}status-warning{% endif %}">
+                        <strong>Working Tree:</strong>
+                        <p>{% if status.is_clean %}Clean{% else %}Modified{% endif %}</p>
+                    </div>
+                    <div class="status-item">
+                        <strong>Modified Files:</strong>
+                        <p>{{ status.modified_files|length }}</p>
+                    </div>
+                    <div class="status-item">
+                        <strong>Untracked Files:</strong>
+                        <p>{{ status.untracked_files|length }}</p>
+                    </div>
+                </div>
+
+                {% if not status.is_clean %}
+                    <div class="file-list">
+                        <h4>Changed Files:</h4>
+                        {% if status.modified_files %}
+                            <ul>
+                                {% for file in status.modified_files %}
+                                    <li class="file-modified">{{ file }}</li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
+                        {% if status.untracked_files %}
+                            <h4>Untracked Files:</h4>
+                            <ul>
+                                {% for file in status.untracked_files %}
+                                    <li class="file-untracked">{{ file }}</li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
+                        <button onclick="showDiff()" class="btn btn-secondary">View Diff</button>
+                    </div>
+                {% endif %}
+
+                {% if status.last_commit %}
+                    <div class="commit-info">
+                        <h4>Last Commit:</h4>
+                        <p><strong>{{ status.last_commit.hash }}</strong> - {{ status.last_commit.message }}</p>
+                        <p class="meta">{{ status.last_commit.author }} - {{ status.last_commit.date }}</p>
+                    </div>
+                {% endif %}
+            {% else %}
+                <div class="status-error">Error loading local status</div>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- Commit Changes -->
+    <section class="card">
+        <h3>Commit & Push Changes</h3>
+        <div class="action-panel">
+            <form id="commit-form" onsubmit="commitChanges(event)">
+                <div class="form-group">
+                    <label for="commit-message">Commit Message:</label>
+                    <textarea id="commit-message" name="message" rows="3" required placeholder="Enter commit message..."></textarea>
+                </div>
+                <div class="button-group">
+                    <button type="submit" class="btn btn-primary">Commit Changes</button>
+                    <button type="button" onclick="commitAndPush()" class="btn btn-success">Commit & Push</button>
+                </div>
+            </form>
+            <div id="commit-result"></div>
+        </div>
+    </section>
+
+    <!-- Branch Synchronization Status -->
+    <section class="card">
+        <h3>Branch Synchronization Status</h3>
+        <div id="sync-status">
+            {% if dashboard.success and dashboard.all_branches_sync.success %}
+                {% set branches = dashboard.all_branches_sync.branches %}
+                <div class="sync-grid">
+                    <!-- Train Branch -->
+                    <div class="sync-item status-active">
+                        <h4>Train (Source)</h4>
+                        <p class="commit-hash">{{ branches.train.commit.id }}</p>
+                        <p class="commit-msg">{{ branches.train.commit.message }}</p>
+                        <span class="badge badge-active">Active</span>
+                    </div>
+
+                    <!-- Test Branch -->
+                    <div class="sync-item status-{{ branches.test.status }}">
+                        <h4>Test</h4>
+                        <p class="commit-hash">{{ branches.test.commit.id }}</p>
+                        <p class="commit-msg">{{ branches.test.commit.message }}</p>
+                        {% if branches.test.status == 'synced' %}
+                            <span class="badge badge-success">Synced</span>
+                        {% else %}
+                            <span class="badge badge-warning">{{ branches.test.commits_behind }} commit(s) behind</span>
+                        {% endif %}
+                    </div>
+
+                    <!-- Live Branch -->
+                    <div class="sync-item status-{{ branches.live.status }}">
+                        <h4>Live</h4>
+                        <p class="commit-hash">{{ branches.live.commit.id }}</p>
+                        <p class="commit-msg">{{ branches.live.commit.message }}</p>
+                        {% if branches.live.status == 'synced' %}
+                            <span class="badge badge-success">Synced</span>
+                        {% else %}
+                            <span class="badge badge-warning">{{ branches.live.commits_behind }} commit(s) behind</span>
+                        {% endif %}
+                    </div>
+                </div>
+            {% else %}
+                <div class="status-error">Error loading sync status</div>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- Promote Changes -->
+    <section class="card">
+        <h3>Promote Changes</h3>
+        <div class="action-panel">
+            <p>Promote train branch to test or live environments:</p>
+            <div class="button-group">
+                <button onclick="promoteToTest()" class="btn btn-warning">Promote to Test</button>
+                <button onclick="promoteToLive()" class="btn btn-danger">Promote to Live</button>
+            </div>
+            <div class="button-group">
+                <button onclick="showComparison('test')" class="btn btn-secondary">View Train vs Test</button>
+                <button onclick="showComparison('live')" class="btn btn-secondary">View Train vs Live</button>
+            </div>
+            <div id="promote-result"></div>
+        </div>
+    </section>
+
+    <!-- Comparison Modal -->
+    <div id="comparison-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h3>Branch Comparison</h3>
+            <div id="comparison-content"></div>
+        </div>
+    </div>
+
+    <!-- Diff Modal -->
+    <div id="diff-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <span class="close" onclick="closeDiffModal()">&times;</span>
+            <h3>Local Changes Diff</h3>
+            <pre id="diff-content"></pre>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    async function commitChanges(event) {
+        event.preventDefault();
+
+        const message = document.getElementById('commit-message').value;
+        const resultDiv = document.getElementById('commit-result');
+
+        resultDiv.innerHTML = '<div class="loading">Committing changes...</div>';
+
+        const result = await apiCall('/commit', 'POST', { message: message });
+
+        if (result.success) {
+            resultDiv.innerHTML = `<div class="success-message">✓ ${result.message}</div>`;
+            document.getElementById('commit-message').value = '';
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            resultDiv.innerHTML = `<div class="error-message">✗ ${result.error}</div>`;
+        }
+    }
+
+    async function commitAndPush() {
+        if (!confirmAction('This will commit all changes and push to the train branch. Continue?')) {
+            return;
+        }
+
+        const message = document.getElementById('commit-message').value;
+        if (!message) {
+            alert('Please enter a commit message');
+            return;
+        }
+
+        const resultDiv = document.getElementById('commit-result');
+        resultDiv.innerHTML = '<div class="loading">Committing and pushing changes...</div>';
+
+        // Commit
+        const commitResult = await apiCall('/commit', 'POST', { message: message });
+
+        if (!commitResult.success) {
+            resultDiv.innerHTML = `<div class="error-message">✗ Commit failed: ${commitResult.error}</div>`;
+            return;
+        }
+
+        // Push
+        const pushResult = await apiCall('/push', 'POST', { branch: '{{ current_branch }}' });
+
+        if (pushResult.success) {
+            resultDiv.innerHTML = `<div class="success-message">✓ Changes committed and pushed successfully</div>`;
+            document.getElementById('commit-message').value = '';
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            resultDiv.innerHTML = `<div class="error-message">✗ Push failed: ${pushResult.error}</div>`;
+        }
+    }
+
+    async function promoteToTest() {
+        if (!confirmAction('This will merge train branch into test branch. Continue?')) {
+            return;
+        }
+
+        const resultDiv = document.getElementById('promote-result');
+        resultDiv.innerHTML = '<div class="loading">Promoting to test...</div>';
+
+        const result = await apiCall('/promote', 'POST', { target: 'test' });
+
+        if (result.success) {
+            resultDiv.innerHTML = `<div class="success-message">✓ ${result.message}</div>`;
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            resultDiv.innerHTML = `<div class="error-message">✗ ${result.error}</div>`;
+        }
+    }
+
+    async function promoteToLive() {
+        if (!confirmAction('⚠️ WARNING: This will merge train branch into LIVE branch. Are you absolutely sure?')) {
+            return;
+        }
+
+        const resultDiv = document.getElementById('promote-result');
+        resultDiv.innerHTML = '<div class="loading">Promoting to live...</div>';
+
+        const result = await apiCall('/promote', 'POST', { target: 'live' });
+
+        if (result.success) {
+            resultDiv.innerHTML = `<div class="success-message">✓ ${result.message}</div>`;
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            resultDiv.innerHTML = `<div class="error-message">✗ ${result.error}</div>`;
+        }
+    }
+
+    async function showComparison(target) {
+        const modal = document.getElementById('comparison-modal');
+        const content = document.getElementById('comparison-content');
+
+        content.innerHTML = '<div class="loading">Loading comparison...</div>';
+        modal.style.display = 'block';
+
+        const targetBranch = target === 'test' ? '{{ config.TEST_BRANCH }}' : '{{ config.LIVE_BRANCH }}';
+        const result = await apiCall(`/compare?from={{ config.TRAIN_BRANCH }}&to=${targetBranch}`);
+
+        if (result.success) {
+            let html = `<h4>Train vs ${target.toUpperCase()}</h4>`;
+            html += `<p>Commits: ${result.commits_count} | Files changed: ${result.files_changed}</p>`;
+
+            if (result.commits_count > 0) {
+                html += '<h5>Commits:</h5><ul>';
+                result.commits.forEach(commit => {
+                    html += `<li><strong>${commit.id}</strong> - ${commit.message} <em>(${commit.author_name})</em></li>`;
+                });
+                html += '</ul>';
+
+                html += '<h5>Changed Files:</h5><ul>';
+                result.diffs.forEach(diff => {
+                    let status = diff.new_file ? 'Added' : diff.deleted_file ? 'Deleted' : 'Modified';
+                    html += `<li><span class="file-status">${status}</span> ${diff.new_path}</li>`;
+                });
+                html += '</ul>';
+            } else {
+                html += '<p class="success-message">Branches are in sync!</p>';
+            }
+
+            content.innerHTML = html;
+        } else {
+            content.innerHTML = `<div class="error-message">${result.error}</div>`;
+        }
+    }
+
+    async function showDiff() {
+        const modal = document.getElementById('diff-modal');
+        const content = document.getElementById('diff-content');
+
+        content.textContent = 'Loading diff...';
+        modal.style.display = 'block';
+
+        const result = await apiCall('/diff');
+
+        if (result.success) {
+            content.textContent = result.diff || 'No changes to display';
+        } else {
+            content.textContent = `Error: ${result.error}`;
+        }
+    }
+
+    function closeModal() {
+        document.getElementById('comparison-modal').style.display = 'none';
+    }
+
+    function closeDiffModal() {
+        document.getElementById('diff-modal').style.display = 'none';
+    }
+
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+        const compModal = document.getElementById('comparison-modal');
+        const diffModal = document.getElementById('diff-modal');
+        if (event.target == compModal) {
+            compModal.style.display = 'none';
+        }
+        if (event.target == diffModal) {
+            diffModal.style.display = 'none';
+        }
+    }
+</script>
+{% endblock %}

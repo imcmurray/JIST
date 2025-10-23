@@ -294,25 +294,100 @@ create_log_file() {
     print_success "Log file created"
 }
 
-# Initialize git repository (if needed)
+# Initialize or configure git repository
 init_git_repo() {
     echo ""
-    read -p "Do you need to initialize a git repository in the template directory? (y/n): " INIT_GIT
+    print_info "Checking git repository configuration..."
 
-    if [ "$INIT_GIT" = "y" ] || [ "$INIT_GIT" = "Y" ]; then
-        print_info "Initializing git repository..."
+    # Get repository path from config
+    REPO_PATH=$(grep "REPO_PATH=" "$INSTALL_DIR/.env" | cut -d '=' -f2)
 
-        # Get repository path from config
-        REPO_PATH=$(grep "REPO_PATH=" "$INSTALL_DIR/.env" | cut -d '=' -f2)
+    if [ ! -d "$REPO_PATH" ]; then
+        print_warning "Repository path does not exist. Creating it..."
+        mkdir -p "$REPO_PATH"
+    fi
 
-        if [ ! -d "$REPO_PATH" ]; then
-            print_warning "Repository path does not exist. Creating it..."
-            mkdir -p "$REPO_PATH"
+    # Check if git repository already exists
+    if [ -d "$REPO_PATH/.git" ]; then
+        echo ""
+        print_warning "Existing git repository detected in $REPO_PATH"
+        echo ""
+
+        # Run the git repository checker if available
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        if [ -f "$SCRIPT_DIR/check_git_repository.sh" ]; then
+            bash "$SCRIPT_DIR/check_git_repository.sh" "$REPO_PATH"
+            CHECK_RESULT=$?
+        else
+            CHECK_RESULT=0
         fi
 
-        cd "$REPO_PATH"
+        echo ""
+        echo "How would you like Template Manager to work with this repository?"
+        echo ""
+        echo "1) Template Manager manages GitLab sync (RECOMMENDED)"
+        echo "   - Use this if: Design app maintains git for history/audit only"
+        echo "   - Use this if: No other tool pushes to GitLab"
+        echo "   - Template Manager will: commit, push to GitLab, promote branches"
+        echo "   - Design app can: edit files, view git history"
+        echo "   - Both share the same .git repository harmoniously"
+        echo ""
+        echo "2) External automation manages GitLab sync (Template Manager read-only)"
+        echo "   - Use this if: Ansible/Jenkins/CI-CD commits AND pushes to GitLab"
+        echo "   - Use this if: External automation detected (see warnings above)"
+        echo "   - Template Manager will: ONLY use GitLab API (promote, compare)"
+        echo "   - Template Manager will NOT: commit, push, or pull locally"
+        echo "   - Prevents conflicts with external automation tools"
+        echo ""
+        echo "3) Skip git configuration for now"
+        echo ""
+        echo "NOTE: If you have a template design/editing application that maintains"
+        echo "      git history but does NOT push to GitLab, choose Option 1."
+        echo ""
 
-        if [ ! -d ".git" ]; then
+        read -p "Select option [1-3] (default: 1): " GIT_OPTION
+        GIT_OPTION=${GIT_OPTION:-1}
+
+        case $GIT_OPTION in
+            1)
+                print_info "Configuring Template Manager to manage GitLab synchronization..."
+                # Update configuration
+                sed -i 's/MANAGE_LOCAL_GIT=.*/MANAGE_LOCAL_GIT=True/' "$INSTALL_DIR/.env"
+                sed -i 's/USE_EXISTING_REMOTE=.*/USE_EXISTING_REMOTE=True/' "$INSTALL_DIR/.env"
+                print_success "Configuration complete:"
+                echo "  - Template Manager will commit changes and push to GitLab"
+                echo "  - Design apps can view git history and audit trail"
+                echo "  - Both share the existing .git repository"
+                echo "  - Template Manager handles all GitLab operations"
+                ;;
+            2)
+                print_info "Configuring Template Manager for read-only mode..."
+                # Update configuration
+                sed -i 's/MANAGE_LOCAL_GIT=.*/MANAGE_LOCAL_GIT=False/' "$INSTALL_DIR/.env"
+                sed -i 's/USE_EXISTING_REMOTE=.*/USE_EXISTING_REMOTE=True/' "$INSTALL_DIR/.env"
+                print_success "Configuration complete:"
+                echo "  - Template Manager will ONLY use GitLab API"
+                echo "  - External automation handles commits and pushes"
+                echo "  - Template Manager can promote branches via GitLab"
+                echo "  - No conflicts with external tools"
+                ;;
+            3)
+                print_info "Skipping git configuration (can configure later in .env)"
+                ;;
+            *)
+                print_warning "Invalid option, skipping git configuration"
+                ;;
+        esac
+
+    else
+        # No existing repository
+        echo ""
+        read -p "Would you like to initialize a new git repository? (y/n): " INIT_GIT
+
+        if [ "$INIT_GIT" = "y" ] || [ "$INIT_GIT" = "Y" ]; then
+            print_info "Initializing new git repository..."
+
+            cd "$REPO_PATH"
             git init
             git config user.email "template-manager@localhost"
             git config user.name "Template Manager"
@@ -327,9 +402,13 @@ init_git_repo() {
 
             git remote add origin "$REMOTE_URL" 2>/dev/null || git remote set-url origin "$REMOTE_URL"
 
-            print_success "Git repository initialized"
+            # Set configuration for new repository
+            sed -i 's/MANAGE_LOCAL_GIT=.*/MANAGE_LOCAL_GIT=True/' "$INSTALL_DIR/.env"
+            sed -i 's/USE_EXISTING_REMOTE=.*/USE_EXISTING_REMOTE=False/' "$INSTALL_DIR/.env"
+
+            print_success "Git repository initialized and configured"
         else
-            print_warning "Git repository already exists"
+            print_info "Skipping git repository initialization"
         fi
     fi
 }

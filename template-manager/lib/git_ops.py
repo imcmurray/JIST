@@ -373,3 +373,192 @@ class GitOperations:
                 'success': False,
                 'error': str(e)
             }
+
+    def check_existing_repo(self):
+        """
+        Check if repository already exists and get its configuration
+
+        Returns:
+            dict: Repository existence and configuration information
+        """
+        try:
+            repo_exists = os.path.isdir(os.path.join(self.repo_path, '.git'))
+
+            if not repo_exists:
+                return {
+                    'success': True,
+                    'exists': False,
+                    'message': 'No existing git repository found'
+                }
+
+            # Get current remote configuration
+            remotes = []
+            try:
+                for remote in self.repo.remotes:
+                    remotes.append({
+                        'name': remote.name,
+                        'urls': list(remote.urls)
+                    })
+            except Exception:
+                remotes = []
+
+            # Get current branch
+            try:
+                current_branch = self.repo.active_branch.name
+            except Exception:
+                current_branch = None
+
+            # Check if there are any commits
+            try:
+                commit_count = len(list(self.repo.iter_commits(max_count=1)))
+            except Exception:
+                commit_count = 0
+
+            return {
+                'success': True,
+                'exists': True,
+                'remotes': remotes,
+                'current_branch': current_branch,
+                'has_commits': commit_count > 0,
+                'message': f'Existing repository found with {len(remotes)} remote(s)'
+            }
+
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def verify_remote_matches_project(self, gitlab_url, project_id, remote='origin'):
+        """
+        Verify that the git remote matches the expected GitLab project
+
+        Args:
+            gitlab_url: Expected GitLab URL
+            project_id: Expected GitLab project ID
+            remote: Remote name to check (default: origin)
+
+        Returns:
+            dict: Verification result
+        """
+        try:
+            # Get remote URL
+            remote_url_result = self.get_remote_url(remote)
+
+            if not remote_url_result['success']:
+                return {
+                    'success': False,
+                    'matches': False,
+                    'error': f"Could not get remote URL: {remote_url_result.get('error')}"
+                }
+
+            remote_url = remote_url_result['url']
+
+            if not remote_url:
+                return {
+                    'success': False,
+                    'matches': False,
+                    'error': f"Remote '{remote}' not found"
+                }
+
+            # Clean URLs for comparison
+            gitlab_base = gitlab_url.rstrip('/').lower()
+            remote_url_clean = remote_url.lower()
+
+            # Remove authentication from URL for comparison
+            remote_url_clean = remote_url_clean.replace('https://oauth2:', 'https://')
+            remote_url_clean = remote_url_clean.split('@')[-1]  # Remove credentials
+
+            # Check if project ID appears in remote URL
+            matches = False
+            warnings = []
+
+            # Check if GitLab URL domain is in remote URL
+            gitlab_domain = gitlab_base.replace('https://', '').replace('http://', '')
+            if gitlab_domain not in remote_url_clean:
+                warnings.append(f"GitLab domain '{gitlab_domain}' not found in remote URL")
+            else:
+                # Domain matches, consider it a match
+                matches = True
+
+            # Check for project ID if it's numeric
+            if project_id and str(project_id) in remote_url:
+                matches = True
+
+            return {
+                'success': True,
+                'matches': matches,
+                'remote_url': remote_url,
+                'expected_gitlab_url': gitlab_url,
+                'expected_project_id': project_id,
+                'warnings': warnings
+            }
+
+        except Exception as e:
+            return {
+                'success': False,
+                'matches': False,
+                'error': str(e)
+            }
+
+    @staticmethod
+    def is_repo_managed_externally(repo_path):
+        """
+        Detect if repository appears to be managed by an external application
+        by checking for common indicators
+
+        Args:
+            repo_path: Path to repository
+
+        Returns:
+            dict: Detection result with indicators
+        """
+        indicators = []
+
+        try:
+            # Check if .git/config has specific automation markers
+            git_config_path = os.path.join(repo_path, '.git', 'config')
+            if os.path.exists(git_config_path):
+                with open(git_config_path, 'r') as f:
+                    config_content = f.read()
+
+                    # Common automation tool markers
+                    automation_markers = [
+                        'jenkins',
+                        'gitlab-runner',
+                        'github-actions',
+                        'ansible',
+                        'puppet',
+                        'chef',
+                        'automation'
+                    ]
+
+                    for marker in automation_markers:
+                        if marker in config_content.lower():
+                            indicators.append(f"Found '{marker}' reference in git config")
+
+            # Check for hook files (indicates automation)
+            hooks_dir = os.path.join(repo_path, '.git', 'hooks')
+            if os.path.exists(hooks_dir):
+                hook_files = [f for f in os.listdir(hooks_dir)
+                             if os.path.isfile(os.path.join(hooks_dir, f))
+                             and not f.endswith('.sample')]
+
+                if hook_files:
+                    indicators.append(f"Found {len(hook_files)} active git hook(s): {', '.join(hook_files)}")
+
+            likely_external = len(indicators) > 0
+
+            return {
+                'success': True,
+                'likely_external': likely_external,
+                'indicators': indicators,
+                'message': 'Repository appears to be managed externally' if likely_external
+                          else 'No clear external management detected'
+            }
+
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }

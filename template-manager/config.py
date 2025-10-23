@@ -53,6 +53,17 @@ class Config:
     BACKUP_ENABLED = os.getenv('BACKUP_ENABLED', 'True').lower() == 'true'
     BACKUP_DIR = os.getenv('BACKUP_DIR', '/var/backups/templates')
 
+    # Git management settings
+    # Set to False if an external application manages the git repository
+    MANAGE_LOCAL_GIT = os.getenv('MANAGE_LOCAL_GIT', 'True').lower() == 'true'
+
+    # If MANAGE_LOCAL_GIT=False, only GitLab API operations will be available
+    # Local git operations (commit, push, pull) will be disabled in the UI
+    USE_EXISTING_REMOTE = os.getenv('USE_EXISTING_REMOTE', 'False').lower() == 'true'
+
+    # Verify git remote matches GitLab project (safety check)
+    VERIFY_GIT_REMOTE = os.getenv('VERIFY_GIT_REMOTE', 'True').lower() == 'true'
+
     # Logging
     LOG_FILE = os.getenv('LOG_FILE', '/var/log/template-manager.log')
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
@@ -106,6 +117,18 @@ AUTO_TERMINATE_TIMEOUT=3600
 # Backup Settings
 BACKUP_ENABLED=True
 BACKUP_DIR=/var/backups/templates
+
+# Git Management Settings
+# Set MANAGE_LOCAL_GIT=False if an external application manages the git repository
+# When False, Template Manager will only use GitLab API (no local git operations)
+MANAGE_LOCAL_GIT=True
+
+# Set USE_EXISTING_REMOTE=True to use the existing git remote configuration
+# instead of setting up a new remote
+USE_EXISTING_REMOTE=False
+
+# Verify that git remote matches GitLab project (recommended for safety)
+VERIFY_GIT_REMOTE=True
 
 # Logging
 LOG_FILE=/var/log/template-manager.log

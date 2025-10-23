@@ -292,6 +292,187 @@ sudo yum install python3-pip --disablerepo=* --enablerepo=local
 ls -la offline-packages/  # Verify it exists
 ```
 
+## Integration with Existing Git Repositories
+
+**Important**: If an external application already manages the git repository in your template directory, Template Manager can coexist without conflicts.
+
+### Scenarios
+
+#### Scenario 1: External Application Manages Git
+
+Your template directory has a git repository managed by another application (e.g., Ansible, Jenkins, custom automation).
+
+**During Installation:**
+- Setup script will detect the existing repository
+- It will check for indicators of external management (git hooks, automation commits)
+- You'll be prompted to choose "External application manages git" option
+
+**Configuration:**
+```bash
+MANAGE_LOCAL_GIT=False      # Disable local git operations
+USE_EXISTING_REMOTE=True    # Use existing remote configuration
+VERIFY_GIT_REMOTE=True      # Verify remote matches
+```
+
+**What Template Manager Can Do:**
+- ✓ Promote branches via GitLab API (train → test, train → live)
+- ✓ Compare branches and view differences
+- ✓ View branch synchronization status
+- ✓ Monitor GitLab repository state
+
+**What is Disabled:**
+- ✗ Local commit operations
+- ✗ Push operations
+- ✗ Pull operations
+- ✗ Git status and diff views
+
+**Recommended For:**
+- Automated deployment systems
+- CI/CD pipelines
+- Configuration management tools (Ansible, Puppet, Chef)
+- When templates are managed by multiple tools
+
+#### Scenario 2: Template Manager Manages Git with Existing Repo
+
+Template directory has a git repository, but no external management.
+
+**During Installation:**
+- Setup script detects existing repository
+- Choose "Template Manager will manage git operations"
+- Existing remote will be used (not modified)
+
+**Configuration:**
+```bash
+MANAGE_LOCAL_GIT=True       # Enable local git operations
+USE_EXISTING_REMOTE=True    # Don't modify existing remote
+VERIFY_GIT_REMOTE=True      # Verify remote matches
+```
+
+**What Template Manager Can Do:**
+- ✓ All local git operations (commit, push, pull)
+- ✓ All GitLab API operations (promote, compare)
+- ✓ Full functionality
+
+**Recommended For:**
+- Migrating from manual git management
+- Simple environments without automation
+- Direct template management
+
+#### Scenario 3: New Repository (No Existing Git)
+
+Template directory doesn't have a git repository.
+
+**During Installation:**
+- Setup script offers to initialize new repository
+- Remote will be configured to point to GitLab project
+
+**Configuration:**
+```bash
+MANAGE_LOCAL_GIT=True       # Enable local git operations
+USE_EXISTING_REMOTE=False   # Template Manager sets up remote
+VERIFY_GIT_REMOTE=True      # Verify remote matches
+```
+
+**Recommended For:**
+- New installations
+- Fresh start with Template Manager
+- Full Template Manager control
+
+### Detecting External Management
+
+Run the git repository checker manually:
+
+```bash
+# Check if repository appears externally managed
+/opt/template-manager/scripts/check_git_repository.sh /var/www/html/templates
+```
+
+**Indicators of External Management:**
+- Git hooks present (pre-commit, post-receive, etc.)
+- Automation tool references in git config
+- Recent commits by bots or automation accounts
+- References to Jenkins, GitLab Runner, Ansible, etc.
+
+### Switching Modes
+
+You can change git management mode after installation by editing the configuration:
+
+**Switch to External Management Mode:**
+```bash
+sudo nano /opt/template-manager/.env
+
+# Change these settings:
+MANAGE_LOCAL_GIT=False
+USE_EXISTING_REMOTE=True
+```
+
+**Switch to Template Manager Mode:**
+```bash
+sudo nano /opt/template-manager/.env
+
+# Change these settings:
+MANAGE_LOCAL_GIT=True
+USE_EXISTING_REMOTE=True  # or False if you want to reconfigure remote
+```
+
+**Restart template-manager for changes to take effect.**
+
+### Best Practices
+
+1. **For Production Environments:**
+   - Use `MANAGE_LOCAL_GIT=False` if any automation exists
+   - Keep `VERIFY_GIT_REMOTE=True` for safety
+   - Document which tool manages local git operations
+
+2. **For Development/Train Servers:**
+   - Can use `MANAGE_LOCAL_GIT=True` for convenience
+   - Template Manager provides easy commit/push UI
+   - Still allows automation for promotions
+
+3. **Avoiding Conflicts:**
+   - Never have multiple tools committing to the same repo
+   - Use Template Manager for git OR external tool, not both
+   - External tools should handle commits, Template Manager handles promotions
+
+4. **Git Remote Safety:**
+   - Always verify remote points to correct GitLab project
+   - Keep `VERIFY_GIT_REMOTE=True` to prevent accidental pushes
+   - Use different GitLab tokens per environment
+
+### Example Configurations
+
+**Configuration 1: Ansible Manages Train, Template Manager Promotes**
+```bash
+# Train Server
+MANAGE_LOCAL_GIT=False          # Ansible commits and pushes
+USE_EXISTING_REMOTE=True
+SERVER_ROLE=train
+```
+- Ansible handles local git operations
+- Template Manager used only for promoting to test/live via GitLab API
+- No conflicts between tools
+
+**Configuration 2: Template Manager Full Control**
+```bash
+# Train Server
+MANAGE_LOCAL_GIT=True           # Template Manager does everything
+USE_EXISTING_REMOTE=False
+SERVER_ROLE=train
+```
+- Template Manager handles commits, pushes, and promotions
+- Simplest setup for manual template management
+
+**Configuration 3: Test/Live Always Read-Only**
+```bash
+# Test/Live Servers
+MANAGE_LOCAL_GIT=True           # Enable pull functionality
+USE_EXISTING_REMOTE=True
+SERVER_ROLE=test  # or live
+```
+- Test/Live servers pull updates via Template Manager
+- Never commit or push from these servers
+- Clean one-way flow: Train → Test → Live
+
 ## Usage
 
 ### Starting the Web UI

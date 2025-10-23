@@ -378,6 +378,126 @@ VERIFY_GIT_REMOTE=True      # Verify remote matches
 - Fresh start with Template Manager
 - Full Template Manager control
 
+#### Scenario 4: Design Application with Shared Git Repository (Recommended for Template Design Tools)
+
+**Important Use Case**: Template directory has a git repository maintained by a template design/editing application for audit trail and history tracking. The design application does NOT push to GitLab - it only uses git for local version control and "who changed what" tracking.
+
+**Your Setup:**
+- Design application (e.g., template editor, CMS) maintains git repository
+- Design app shows users commit history and audit trail within its UI
+- Design app does NOT interact with GitLab
+- Template Manager serves as the **bridge to GitLab**
+
+**During Installation:**
+- Setup script detects existing repository
+- Choose "Template Manager will manage git operations" (Option 1)
+- Template Manager will use the existing `.git` directory
+- Preserves all existing commit history
+
+**Configuration:**
+```bash
+MANAGE_LOCAL_GIT=True       # Template Manager handles GitLab sync
+USE_EXISTING_REMOTE=True    # Use existing .git directory
+VERIFY_GIT_REMOTE=True      # Safety check for GitLab remote
+```
+
+**How It Works - Shared Repository:**
+
+```
+┌─────────────────────────────────────────────────┐
+│  Train Server: /var/www/html/templates          │
+│                                                  │
+│  ┌────────────────────────────────────────┐    │
+│  │    Shared Git Repository (.git)         │    │
+│  │    • Single source of truth              │    │
+│  │    • Complete change history             │    │
+│  │    • Visible to both applications        │    │
+│  └────────────────────────────────────────┘    │
+│           ▲                        ▲             │
+│           │                        │             │
+│  ┌────────┴──────────┐  ┌─────────┴──────────┐ │
+│  │  Design App       │  │  Template Manager  │ │
+│  │  (Editor/CMS)     │  │  (GitLab Bridge)   │ │
+│  │                   │  │                    │ │
+│  │ • Edit templates  │  │ • Commit changes   │ │
+│  │ • Create files    │  │ • Push to GitLab   │ │
+│  │ • Show history    │  │ • Pull from GitLab │ │
+│  │ • Audit trail UI  │  │ • Promote branches │ │
+│  │ • NO GitLab ops   │  │ • Compare branches │ │
+│  └───────────────────┘  └────────────────────┘ │
+└─────────────────────────────────────────────────┘
+                      │
+                      ▼
+              GitLab Repository
+           (train, test, live branches)
+```
+
+**Workflow Example:**
+
+1. **User edits template in design application**
+   - Design app saves file changes to disk
+   - Changes exist in git working directory
+
+2. **User opens Template Manager web UI**
+   - Template Manager shows uncommitted changes
+   - Displays what the design app modified
+   - User enters commit message
+   - Clicks "Commit & Push"
+
+3. **Template Manager commits to shared repository**
+   - Runs `git add` and `git commit`
+   - Commit appears in git history
+   - **Design app's history view immediately shows the new commit**
+   - Audit trail preserved in design app
+
+4. **Template Manager syncs with GitLab**
+   - Pushes commit to GitLab train branch
+   - Can promote train → test via GitLab API
+   - Can promote train → live via GitLab API
+
+5. **Design app continues showing full history**
+   - All commits visible in design app UI
+   - Users see who made changes and when
+   - Audit trail remains intact
+
+**Benefits:**
+- ✅ **Shared History**: Both applications see same git commit history
+- ✅ **Audit Trail**: Design app maintains complete change tracking
+- ✅ **No Conflicts**: Clear separation of responsibilities
+- ✅ **Preserved History**: All existing commits remain intact
+- ✅ **Complementary**: Design app = editing UI, Template Manager = GitLab bridge
+- ✅ **User Experience**: Users can use both tools seamlessly
+
+**What Template Manager Does:**
+- ✓ Commits changes (appears in design app history)
+- ✓ Pushes to GitLab train branch
+- ✓ Pulls from GitLab (when test/live servers get updates)
+- ✓ Promotes train → test/live via GitLab API
+- ✓ Compares branches and shows diffs
+
+**What Design App Does:**
+- ✓ Provides template editing interface
+- ✓ Saves files to template directory
+- ✓ Shows git history/audit trail to users
+- ✓ Displays "who changed what" information
+- ✗ Does NOT push to GitLab (Template Manager handles this)
+
+**Recommended For:**
+- Template design applications with built-in version control
+- CMS systems that maintain local git history
+- Editing tools with audit trail features
+- Multi-user template management systems
+- Any scenario where design app tracks history but doesn't sync to GitLab
+
+**Installation Choice:**
+When setup detects existing repository, select:
+- **Option 1**: "Template Manager will manage git operations"
+
+This configuration gives you the best of both worlds:
+- Design app provides editing UI and local history
+- Template Manager provides GitLab synchronization and promotions
+- Both share the same git repository harmoniously
+
 ### Detecting External Management
 
 Run the git repository checker manually:
@@ -429,10 +549,15 @@ USE_EXISTING_REMOTE=True  # or False if you want to reconfigure remote
    - Template Manager provides easy commit/push UI
    - Still allows automation for promotions
 
-3. **Avoiding Conflicts:**
-   - Never have multiple tools committing to the same repo
-   - Use Template Manager for git OR external tool, not both
-   - External tools should handle commits, Template Manager handles promotions
+3. **Avoiding Conflicts vs. Complementary Tools:**
+   - **Conflicting**: Multiple tools that commit/push to GitLab
+     - Never have automation tool AND Template Manager both committing
+     - Choose: External tool commits OR Template Manager commits
+   - **Complementary**: Design apps that only maintain local history
+     - Design apps and Template Manager can share the same repository
+     - Design app provides editing UI, Template Manager provides GitLab sync
+     - Both tools complement each other (Scenario 4)
+   - Rule: Only ONE tool should commit and push to GitLab
 
 4. **Git Remote Safety:**
    - Always verify remote points to correct GitLab project
@@ -472,6 +597,25 @@ SERVER_ROLE=test  # or live
 - Test/Live servers pull updates via Template Manager
 - Never commit or push from these servers
 - Clean one-way flow: Train → Test → Live
+
+**Configuration 4: Design App + Template Manager (Shared Repository)**
+```bash
+# Train Server
+MANAGE_LOCAL_GIT=True           # Template Manager commits and syncs
+USE_EXISTING_REMOTE=True        # Use existing .git directory
+SERVER_ROLE=train
+```
+**Workflow:**
+- Design app: Users edit templates, design app maintains git history for audit
+- Template Manager: Commits changes, pushes to GitLab, promotes branches
+- Both share same `.git` repository harmoniously
+- Design app shows history, Template Manager handles GitLab operations
+
+**Perfect for:**
+- Template design/editing applications with built-in version control
+- CMS systems that track "who changed what"
+- Multi-user environments needing audit trails
+- Scenarios where editing UI is separate from deployment UI
 
 ## Usage
 

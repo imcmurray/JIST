@@ -168,33 +168,54 @@ copy_files() {
     print_success "Application files copied"
 }
 
+# Create virtual environment
+create_virtualenv() {
+    print_info "Creating Python virtual environment..."
+
+    cd "$INSTALL_DIR"
+
+    # Create virtual environment
+    $PYTHON_CMD -m venv venv
+
+    if [ ! -d "venv" ]; then
+        print_error "Failed to create virtual environment"
+        exit 1
+    fi
+
+    print_success "Virtual environment created at $INSTALL_DIR/venv"
+}
+
 # Install Python dependencies offline
 install_python_deps_offline() {
-    print_info "Installing Python dependencies from offline packages..."
+    print_info "Installing Python dependencies from offline packages in virtual environment..."
 
-    # Check if pip is available
-    if ! $PYTHON_CMD -m pip --version &> /dev/null; then
-        print_warning "pip not found, attempting to bootstrap pip..."
+    cd "$INSTALL_DIR"
+
+    # Activate virtual environment
+    source venv/bin/activate
+
+    # Check if pip is available in venv
+    if ! pip --version &> /dev/null; then
+        print_warning "pip not found in venv, attempting to bootstrap pip..."
 
         # Try to install pip from packages if available
         PIP_PACKAGE=$(find "$PACKAGES_DIR" -name "pip-*.whl" -o -name "pip-*.tar.gz" | head -n 1)
         if [ -n "$PIP_PACKAGE" ]; then
-            $PYTHON_CMD "$PIP_PACKAGE/setup.py" install 2>/dev/null || \
+            python "$PIP_PACKAGE/setup.py" install 2>/dev/null || \
                 print_error "Could not install pip. Please install pip manually"
         else
             print_error "pip not found and no pip package in offline packages"
             echo "Please install pip manually or include it in offline packages"
+            deactivate
             exit 1
         fi
     fi
-
-    cd "$INSTALL_DIR"
 
     # Install all packages from the offline directory
     print_info "Installing packages from $PACKAGES_DIR"
 
     # Method 1: Try installing with pip using --no-index and --find-links
-    $PYTHON_CMD -m pip install \
+    pip install \
         --no-index \
         --find-links="$PACKAGES_DIR" \
         --requirement requirements.txt \
@@ -202,7 +223,7 @@ install_python_deps_offline() {
 
     # Check if installation was successful
     if [ ${PIPESTATUS[0]} -eq 0 ]; then
-        print_success "Python dependencies installed successfully"
+        print_success "Python dependencies installed successfully in virtual environment"
     else
         print_warning "Some packages may have failed to install. Check /tmp/pip-install.log"
 
@@ -211,11 +232,14 @@ install_python_deps_offline() {
         for package in "$PACKAGES_DIR"/*.whl; do
             if [ -f "$package" ]; then
                 print_info "Installing $(basename "$package")..."
-                $PYTHON_CMD -m pip install --no-index --no-deps "$package" || \
+                pip install --no-index --no-deps "$package" || \
                     print_warning "Could not install $(basename "$package")"
             fi
         done
     fi
+
+    # Deactivate venv
+    deactivate
 }
 
 # Create configuration file
@@ -460,6 +484,7 @@ main() {
     verify_packages
     create_install_dir
     copy_files
+    create_virtualenv
     install_python_deps_offline
     create_config
     create_backup_dir

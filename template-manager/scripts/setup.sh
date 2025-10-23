@@ -103,23 +103,46 @@ copy_files() {
     print_success "Application files copied"
 }
 
-# Install Python dependencies
-install_python_deps() {
-    print_info "Installing Python dependencies..."
+# Create virtual environment
+create_virtualenv() {
+    print_info "Creating Python virtual environment..."
 
     cd "$INSTALL_DIR"
 
-    # Upgrade pip
-    $PYTHON_CMD -m pip install --upgrade pip || print_warning "Could not upgrade pip"
+    # Create virtual environment
+    $PYTHON_CMD -m venv venv
+
+    if [ ! -d "venv" ]; then
+        print_error "Failed to create virtual environment"
+        exit 1
+    fi
+
+    print_success "Virtual environment created at $INSTALL_DIR/venv"
+}
+
+# Install Python dependencies
+install_python_deps() {
+    print_info "Installing Python dependencies in virtual environment..."
+
+    cd "$INSTALL_DIR"
+
+    # Activate virtual environment
+    source venv/bin/activate
+
+    # Upgrade pip in venv
+    pip install --upgrade pip || print_warning "Could not upgrade pip"
 
     # Install requirements
     if [ -f "requirements.txt" ]; then
-        $PYTHON_CMD -m pip install -r requirements.txt
-        print_success "Python dependencies installed"
+        pip install -r requirements.txt
+        print_success "Python dependencies installed in virtual environment"
     else
         print_error "requirements.txt not found"
         exit 1
     fi
+
+    # Deactivate venv
+    deactivate
 }
 
 # Create configuration file
@@ -363,6 +386,7 @@ main() {
     install_dependencies
     create_install_dir
     copy_files
+    create_virtualenv
     install_python_deps
     create_config
     create_backup_dir

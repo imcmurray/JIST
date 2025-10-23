@@ -124,6 +124,12 @@ main() {
         open_browser &
     fi
 
+    # Activate virtual environment if it exists
+    if [ -d "$INSTALL_DIR/venv" ]; then
+        print_info "Activating virtual environment..."
+        source "$INSTALL_DIR/venv/bin/activate"
+    fi
+
     # Start Flask application
     if command -v python3 &> /dev/null; then
         python3 app.py

@@ -77,7 +77,8 @@ sudo bash template-manager/scripts/setup.sh
 The installation script will:
 - Install system dependencies (git, python3)
 - Create installation directory (`/opt/template-manager`)
-- Install Python dependencies
+- Create Python virtual environment
+- Install Python dependencies in virtual environment
 - Create configuration file
 - Set up backup directory
 - Create log file
@@ -226,7 +227,8 @@ The offline installation script will:
 - Detect Python and git installations
 - Locate the offline-packages directory
 - Verify package contents
-- Install all dependencies from local packages (no internet required)
+- Create Python virtual environment
+- Install all dependencies from local packages into virtual environment (no internet required)
 - Create configuration file
 - Set up directories and permissions
 - Create command-line shortcut
@@ -649,6 +651,7 @@ sudo nano /opt/template-manager/.env
 ├── config.py                   # Configuration module
 ├── requirements.txt            # Python dependencies
 ├── .env                        # Configuration file (created during setup)
+├── venv/                       # Python virtual environment (created during setup)
 ├── lib/
 │   ├── __init__.py
 │   ├── git_ops.py             # Local git operations
@@ -665,6 +668,7 @@ sudo nano /opt/template-manager/.env
 │   ├── setup.sh               # Online installation script
 │   ├── setup_offline.sh       # Offline/airgapped installation script
 │   ├── download_offline_packages.sh  # Download dependencies for offline install
+│   ├── check_git_repository.sh  # Check for external git management
 │   └── start_ui.sh            # Launch script
 └── README.md                   # This file
 ```
@@ -728,13 +732,23 @@ sudo chmod 755 /var/backups/templates
 **Problem**: ImportError or module not found
 
 **Solutions**:
-- Reinstall dependencies:
+- Reinstall dependencies in virtual environment:
   ```bash
   cd /opt/template-manager
-  sudo pip3 install -r requirements.txt
+  source venv/bin/activate
+  pip install -r requirements.txt
+  deactivate
   ```
 - Verify Python version: `python3 --version` (need 3.6+)
-- Check pip is installed: `pip3 --version`
+- Check virtual environment exists: `ls -la /opt/template-manager/venv`
+- If venv missing, recreate it:
+  ```bash
+  cd /opt/template-manager
+  python3 -m venv venv
+  source venv/bin/activate
+  pip install -r requirements.txt
+  deactivate
+  ```
 
 ## API Endpoints
 
